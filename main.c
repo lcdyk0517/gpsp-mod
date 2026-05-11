@@ -216,7 +216,7 @@ u32 function_cc update_gba(int remaining_cycles)
           dispstat &= ~0x01;
 
           /* If there's no cheat hook, run on vblank! */
-          if (cheat_master_hook == ~0U)
+          if (cheat_hook_count == 0)
              process_cheats();
 
 /*        printf("frame update (%x), %d instructions total, %d RAM flushes\n",

@@ -22,6 +22,7 @@
 // - block memory needs psr swapping and user mode reg swapping
 
 #include "common.h"
+#include "cheats.h"
 #if defined(VITA)
 #include <psp2/kernel/sysmem.h>
 #include <stdio.h>
@@ -3087,7 +3088,7 @@ bool translate_block_arm(u32 pc, bool ram_region)
     block_data[block_data_position].block_offset = translation_ptr;
     arm_base_cycles();
 
-    if (pc == cheat_master_hook)
+    if (cheats_is_hook_address(pc))
     {
       arm_process_cheats();
     }
@@ -3248,7 +3249,7 @@ bool translate_block_thumb(u32 pc, bool ram_region)
     block_data[block_data_position].block_offset = translation_ptr;
     thumb_base_cycles();
 
-    if (pc == cheat_master_hook)
+    if (cheats_is_hook_address(pc))
     {
       thumb_process_cheats();
     }

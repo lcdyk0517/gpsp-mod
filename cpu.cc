@@ -1516,9 +1516,9 @@ arm_loop:
 
        collapse_flags();
 
-       /* Process cheats if we are about to execute the cheat hook */
-       if (reg[REG_PC] == cheat_master_hook)
-          process_cheats();
+        /* Process cheats if we are about to execute the cheat hook */
+       if (cheats_is_hook_address(reg[REG_PC]))
+          cheats_process_hook(reg[REG_PC]);
 
        /* Execute ARM instruction */
        using_instruction(arm);
@@ -3080,9 +3080,9 @@ thumb_loop:
 
        collapse_flags();
 
-       /* Process cheats if we are about to execute the cheat hook */
-       if (reg[REG_PC] == cheat_master_hook)
-          process_cheats();
+        /* Process cheats if we are about to execute the cheat hook */
+       if (cheats_is_hook_address(reg[REG_PC]))
+          cheats_process_hook(reg[REG_PC]);
 
        /* Execute THUMB instruction */
 

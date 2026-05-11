@@ -13,6 +13,7 @@ SOURCES_C := $(CORE_DIR)/main.c \
              $(CORE_DIR)/input.c \
              $(CORE_DIR)/sound.c \
              $(CORE_DIR)/cheats.c \
+             $(CORE_DIR)/cheats_parse.c \
              $(CORE_DIR)/memmap.c \
              $(CORE_DIR)/serial.c \
              $(CORE_DIR)/gbp.c \
