@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include <streams/file_stream.h>
 #include <compat/strl.h>
@@ -88,6 +89,12 @@ static retro_environment_t environ_cb;
 static retro_set_rumble_state_t rumble_cb;
 
 struct retro_perf_callback perf_cb;
+
+/* ---- 临时ROM落盘支持 ---- */
+static char     g_temp_rom_path[MAX_PATH];
+static bool     g_temp_rom_valid = false;
+/* 生成一次后，在 retro_unload_game() 清理 */
+/* ------------------------ */
 
 int dynarec_enable;
 boot_mode selected_boot_mode = boot_game;
@@ -555,7 +562,7 @@ void retro_get_system_info(struct retro_system_info* info)
  #else
    info->library_version = GPSP_VERSION;
  #endif
-   info->need_fullpath = true;
+   info->need_fullpath = false;
    info->block_extract = false;
    info->valid_extensions = "gba|bin|agb|gbz|u1" ;
 }
@@ -876,16 +883,20 @@ void retro_cheat_set(unsigned index, bool enabled, const char* code)
 
 static void extract_directory(char* buf, const char* path, size_t size)
 {
-   char* base;
+    if (!path || !buf || size == 0)
+        return;
 
-   strlcpy(buf, path, size);
+    strncpy(buf, path, size - 1);
+    buf[size - 1] = '\0';
 
-   base = strrchr(buf, '/');
+    char *slash1 = strrchr(buf, '/');
+    char *slash2 = strrchr(buf, '\\');
+    char *base = (slash1 > slash2) ? slash1 : slash2;
 
-   if (base)
-      *base = '\0';
-   else
-      strlcpy(buf, ".", size);
+    if (base)
+        *base = '\0';
+    else
+        strncpy(buf, ".", size - 1);
 }
 
 static void check_variables(bool started_from_load)
@@ -970,19 +981,33 @@ static void check_variables(bool started_from_load)
            serial_setting = SERIAL_MODE_GBP;
         else
            serial_setting = SERIAL_MODE_AUTO;
-     }
+      }
 
-     var.key                = "gpsp_rumble";
-     var.value              = 0;
-     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-     {
-        if (!strcmp(var.value, "disabled"))
-           rumble_mode = FEAT_DISABLE;
-        else if (!strcmp(var.value, "enabled"))
-           rumble_mode = FEAT_ENABLE;
-        else
-           rumble_mode = FEAT_AUTODETECT;
-     }
+      var.key                = "gpsp_rumble";
+      var.value              = 0;
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      {
+         if (!strcmp(var.value, "disabled"))
+            rumble_mode = FEAT_DISABLE;
+         else if (!strcmp(var.value, "enabled"))
+            rumble_mode = FEAT_ENABLE;
+      }
+   }
+
+   var.key                = "gpsp_rumble";
+   var.value              = 0;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      bool prev_rumble = rumble_enabled;
+      if (!strcmp(var.value, "disabled"))
+         rumble_enabled = false;
+      else if (!strcmp(var.value, "enabled"))
+         rumble_enabled = true;
+      if (rumble_enabled != prev_rumble) {
+         if (!rumble_enabled)
+            rumble_force_off();
+         update_gpio_romregs();
+      }
    }
 
    var.key                = "gpsp_sprlim";
@@ -1137,6 +1162,81 @@ static void set_memory_descriptors(void)
    environ_cb(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &retromap);
 }
 
+/* 选一个可写目录：优先存档目录 -> 资产目录 -> 当前目录 */
+static void pick_temp_dir(char *out, size_t out_sz)
+{
+   const char *dir = NULL;
+   out[0] = '\0';
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) && dir && dir[0])
+      strncpy(out, dir, out_sz - 1);
+   else if (environ_cb(RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY, &dir) && dir && dir[0])
+      strncpy(out, dir, out_sz - 1);
+   else
+      strncpy(out, ".", out_sz - 1);
+
+   out[out_sz - 1] = '\0';
+}
+
+/* 把内存或VFS读到的 ROM 数据落到临时文件，返回是否成功 */
+static bool write_temp_rom_from_buffer(const void *buf, size_t size)
+{
+   char dirbuf[MAX_PATH];
+   pick_temp_dir(dirbuf, sizeof(dirbuf));
+
+   /* 简单生成一个固定文件名，避免依赖额外API；前面会删老文件 */
+   snprintf(g_temp_rom_path, sizeof(g_temp_rom_path), "%s/%s", dirbuf, "retro_tmp.gba");
+
+   /* 先尝试删除同名旧文件（忽略失败） */
+   remove(g_temp_rom_path);
+
+   RFILE *fp = filestream_open(g_temp_rom_path, RETRO_VFS_FILE_ACCESS_WRITE, RETRO_VFS_FILE_ACCESS_HINT_NONE);
+   if (!fp)
+      return false;
+
+   if (size && buf) {
+      int64_t wr = filestream_write(fp, buf, size);
+      filestream_close(fp);
+      if (wr < 0 || (size_t)wr != size)
+         return false;
+   } else {
+      filestream_close(fp);
+      return false;
+   }
+
+   g_temp_rom_valid = true;
+   return true;
+}
+
+/* 用 VFS 打开一个"虚拟路径"（包含 zip#entry 等），把内容整块复制到临时文件 */
+static bool write_temp_rom_from_vfs_path(const char *vpath)
+{
+   if (!vpath || !vpath[0])
+      return false;
+
+   RFILE *src = filestream_open(vpath, RETRO_VFS_FILE_ACCESS_READ, RETRO_VFS_FILE_ACCESS_HINT_NONE);
+   if (!src)
+      return false;
+
+   int64_t sz = filestream_get_size(src);
+   if (sz <= 0) {
+      filestream_close(src);
+      return false;
+   }
+
+   void *buf = malloc((size_t)sz);
+   if (!buf) {
+      filestream_close(src);
+      return false;
+   }
+   int64_t rd = filestream_read(src, buf, (size_t)sz);
+   filestream_close(src);
+   if (rd != sz) { free(buf); return false; }
+   bool ok = write_temp_rom_from_buffer(buf, (size_t)sz);
+   free(buf);
+   return ok;
+}
+
 bool retro_load_game(const struct retro_game_info* info)
 {
    if (!info || !info->path)
@@ -1201,9 +1301,35 @@ bool retro_load_game(const struct retro_game_info* info)
    }
 
    memset(gamepak_backup, 0xff, sizeof(gamepak_backup));
-   if (load_gamepak(info, info->path, rtc_mode, rumble_mode, serial_setting) != 0)
-   {
-      error_msg("Could not load the game file.");
+   g_temp_rom_valid = false;
+   g_temp_rom_path[0] = '\0';
+
+   /* 优先：前端直接给了内存块 */
+   if (info->data && info->size) {
+      if (!write_temp_rom_from_buffer(info->data, info->size)) {
+         error_msg("Failed to materialize ROM from memory.");
+         return false;
+      }
+      if (load_gamepak(info, g_temp_rom_path, rtc_mode, rumble_mode, serial_setting) != 0) {
+         error_msg("Could not load the game file (memory path).");
+         return false;
+      }
+   } else if (info->path && info->path[0]) {
+      /* 其次：可能是 zip#entry 等虚拟路径，用 VFS 读出再落盘 */
+      if (!write_temp_rom_from_vfs_path(info->path)) {
+         /* 如果 VFS 也打不开（极少数前端），退回原路径尝试一次 */
+         if (load_gamepak(info, info->path, rtc_mode, rumble_mode, serial_setting) != 0) {
+            error_msg("Could not load the game file (vfs/path).");
+            return false;
+         }
+      } else {
+         if (load_gamepak(info, g_temp_rom_path, rtc_mode, rumble_mode, serial_setting) != 0) {
+            error_msg("Could not load the game file (vfs temp).");
+            return false;
+         }
+      }
+   } else {
+      error_msg("No valid content path or data.");
       return false;
    }
 
@@ -1251,6 +1377,13 @@ bool retro_load_game_special(unsigned game_type,
 
 void retro_unload_game(void)
 {
+   /* 清理临时ROM文件 */
+   if (g_temp_rom_valid && g_temp_rom_path[0]) {
+      /* 忽略失败 */
+      remove(g_temp_rom_path);
+   }
+   g_temp_rom_valid = false;
+   g_temp_rom_path[0] = '\0';
    if (libretro_ff_enabled)
       set_fastforward_override(false);
 
@@ -1382,10 +1515,10 @@ void retro_run(void)
    }
 
    if (rumble_cb) {
-     // TODO: Add some user-option to select a rumble policy
-     u32 strength = 0xffff * rumble_active_pct();
-     rumble_cb(0, RETRO_RUMBLE_WEAK,   MIN(strength, 0xffff));
-     rumble_cb(0, RETRO_RUMBLE_STRONG, MIN(strength, 0xffff) / 2);
+      // TODO: Add some user-option to select a rumble policy
+      u32 strength = 0xffff * rumble_active_pct();
+      rumble_cb(0, RETRO_RUMBLE_WEAK,   MIN(strength, 0xffff));
+      rumble_cb(0, RETRO_RUMBLE_STRONG, MIN(strength, 0xffff) / 2);
    }
 
    audio_run();

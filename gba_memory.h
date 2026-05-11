@@ -230,8 +230,11 @@ void function_cc write_backup(u32 address, u32 value);
 void function_cc write_gpio(u32 address, u32 value);
 
 void write_rumble(bool oldv, bool newv);
+void write_ez_rumble(u32 address, u32 value);
 void rumble_frame_reset();
 float rumble_active_pct();
+void rumble_force_off(void);
+void update_gpio_romregs();
 
 /* EDIT: Shouldn't this be extern ?! */
 extern const u32 def_seq_cycles[16][2];
@@ -244,6 +247,7 @@ extern bool gamepak_mini_materialized;
 extern bool gamepak_header_nonstandard;
 extern char gamepak_code[5];
 extern char gamepak_filename[512];
+extern bool rumble_enabled;
 
 cpu_alert_type dma_transfer(unsigned dma_chan, int *cycles);
 u8 *memory_region(u32 address, u32 *memory_limit);

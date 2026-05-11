@@ -74,6 +74,11 @@ void gbp_reset(void) {
   gbp_allow_rumble = false;
 }
 
+void gbp_reset(void)
+{
+   gbp_seq_n = 0;
+}
+
 // GB Player sequencing
 u32 gbp_transfer(u32 value) {
   u32 ret = gbp_seq[gbp_seq_n++];
@@ -92,9 +97,11 @@ u32 gbp_transfer(u32 value) {
       return ret;
     }
 
-    bool rumble_active = (value & 2);
-    write_rumble(gbp_rumble, rumble_active);
-    gbp_rumble = rumble_active;
+    if (rumble_enabled) {
+      bool rumble_active = (value & 2);
+      write_rumble(gbp_rumble, rumble_active);
+      gbp_rumble = rumble_active;
+    }
     gbp_seq_n = 0;
   }
   return ret;

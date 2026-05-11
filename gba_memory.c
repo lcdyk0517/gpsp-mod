@@ -1219,7 +1219,7 @@ typedef enum
 #define RTC_WRITE_TIME_FULL           1
 #define RTC_WRITE_STATUS              2
 
-static bool rtc_enabled = false, rumble_enabled = false;
+bool rtc_enabled = false, rumble_enabled = false;
 
 // I/O registers (for RTC, rumble, etc)
 u8 gpio_regs[3];
@@ -1273,6 +1273,21 @@ static time_t rtc_current_time(void)
 
 // Rumble trackin vars, not really preserved (it's just aproximate)
 static u32 rumble_enable_tick, rumble_ticks;
+
+// EZ-Flash cartridge rumble state machine
+static enum {
+   EZ_RUMBLE_NONE,
+   EZ_RUMBLE_START_CMD_1, // 0xD200
+   EZ_RUMBLE_START_CMD_2, // 0x1500
+   EZ_RUMBLE_START_CMD_3, // 0xD200
+   EZ_RUMBLE_START_CMD_4, // 0x1500
+   EZ_RUMBLE_DATA_5,      // 0xF1 ezode / 7/8 ez3in1
+   EZ_RUMBLE_DATA_5_3IN1,
+   EZ_RUMBLE_END_CMD_6,   // 0x1500 commit
+} ez_rumble_status = EZ_RUMBLE_NONE;
+static s32 ez_rumble_commit;   // -1=uninit, 0=pulse(200ms), 1=continuous
+static u32 ez_rumble_off_tick; // cpu tick when to turn off (0=no pending)
+#define EZ_RUMBLE_DELAY (GBC_BASE_RATE / 5)  // 200ms in cpu ticks
 
 static u8 encode_bcd(u8 value)
 {
@@ -1419,17 +1434,130 @@ void write_rumble(bool oldv, bool newv) {
   }
 }
 
+// EZ-Flash cartridge rumble: intercept writes to ROM bus addresses
+// Protocol: specific address+value sequences unlock the rumble motor
+void write_ez_rumble(u32 address, u32 value) {
+   if (!rumble_enabled)
+      return;
+
+   uint16_t v16 = value & 0xFFFF;
+   uint8_t  v8  = value & 0xFF;
+
+   switch (ez_rumble_status) {
+   case EZ_RUMBLE_NONE:
+      if (address == 0x09FE0000 && v16 == 0xD200)
+         ez_rumble_status = EZ_RUMBLE_START_CMD_1;
+      else if (address == 0x09E20000 && v8 == 0x08) {
+         ez_rumble_commit = 0;  // ez3in1 pulse off
+         ez_rumble_status = EZ_RUMBLE_DATA_5_3IN1;
+      } else if (address == 0x08001000 && v8 == 0) {
+         ez_rumble_commit = 0;  // direct off pulse
+         write_rumble(false, true);
+         ez_rumble_off_tick = cpu_ticks + EZ_RUMBLE_DELAY;
+         ez_rumble_status = EZ_RUMBLE_NONE;
+      }
+      break;
+   case EZ_RUMBLE_START_CMD_1:
+      ez_rumble_status = (address == 0x08000000 && v16 == 0x1500)
+                       ? EZ_RUMBLE_START_CMD_2 : EZ_RUMBLE_NONE;
+      break;
+   case EZ_RUMBLE_START_CMD_2:
+      ez_rumble_status = (address == 0x08020000 && v16 == 0xD200)
+                       ? EZ_RUMBLE_START_CMD_3 : EZ_RUMBLE_NONE;
+      break;
+   case EZ_RUMBLE_START_CMD_3:
+      ez_rumble_status = (address == 0x08040000 && v16 == 0x1500)
+                       ? EZ_RUMBLE_START_CMD_4 : EZ_RUMBLE_NONE;
+      break;
+   case EZ_RUMBLE_START_CMD_4:
+      if (address == 0x09E20000) {
+         if (v8 == 0xF1) {                              // EZODE rumble
+            ez_rumble_status = EZ_RUMBLE_DATA_5;
+         } else if (v8 == 7) {                          // EZ3in1 rumble ON
+            ez_rumble_commit = 1;  // continuous
+            ez_rumble_status = EZ_RUMBLE_DATA_5_3IN1;
+         } else if (v8 == 8) {                          // EZ3in1 rumble OFF
+            ez_rumble_commit = 0;  // pulse
+            ez_rumble_status = EZ_RUMBLE_DATA_5_3IN1;
+         } else {
+            ez_rumble_status = EZ_RUMBLE_NONE;
+         }
+      } else {
+         ez_rumble_status = EZ_RUMBLE_NONE;
+      }
+      break;
+   case EZ_RUMBLE_DATA_5:
+   case EZ_RUMBLE_DATA_5_3IN1:
+      if (address == 0x09FC0000 && v16 == 0x1500) {
+         if (ez_rumble_status == EZ_RUMBLE_DATA_5_3IN1) {
+            // EZ3in1: commit rumble immediately
+            if (ez_rumble_commit == 1) {
+               ez_rumble_off_tick = 0;
+               write_rumble(false, true);
+            } else {
+               write_rumble(false, true);
+               ez_rumble_off_tick = cpu_ticks + EZ_RUMBLE_DELAY;
+            }
+            ez_rumble_status = EZ_RUMBLE_NONE;
+         } else {
+            ez_rumble_status = EZ_RUMBLE_END_CMD_6;
+         }
+      } else {
+         ez_rumble_status = EZ_RUMBLE_NONE;
+      }
+      break;
+   case EZ_RUMBLE_END_CMD_6:
+      if (address == 0x08001000) {
+         if (v8 == 2)       ez_rumble_commit = 1;  // EZODE: continuous
+         else if (v8 == 0)  ez_rumble_commit = 0;  // EZODE: pulse
+         else               ez_rumble_commit = 0;  // default pulse
+         // commit
+         if (ez_rumble_commit == 1) {
+            // continuous: turn on, no auto-off
+            ez_rumble_off_tick = 0;
+            write_rumble(false, true);
+         } else {
+            // pulse: turn on briefly, auto-off after 200ms
+            write_rumble(false, true);
+            ez_rumble_off_tick = cpu_ticks + EZ_RUMBLE_DELAY;
+         }
+      }
+      ez_rumble_status = EZ_RUMBLE_NONE;
+      break;
+   default:
+      ez_rumble_status = EZ_RUMBLE_NONE;
+      break;
+   }
+}
+
+void rumble_force_off(void)
+{
+   if (rumble_enable_tick) {
+      rumble_ticks += (cpu_ticks - rumble_enable_tick);
+      rumble_enable_tick = 0;
+   }
+   ez_rumble_status = EZ_RUMBLE_NONE;
+   ez_rumble_off_tick = 0;
+}
+
 void rumble_frame_reset() {
-  // Reset the tick initial value to frame start (only if active)
+  // EZ rumble auto-off: check BEFORE resetting ticks, so
+  // write_rumble correctly captures the elapsed active time
+  if (ez_rumble_off_tick && cpu_ticks >= ez_rumble_off_tick) {
+     if (rumble_enable_tick) {
+        rumble_ticks += (cpu_ticks - rumble_enable_tick);
+        rumble_enable_tick = 0;
+     }
+     ez_rumble_off_tick = 0;
+  }
+
   rumble_ticks = 0;
   if (rumble_enable_tick)
     rumble_enable_tick = cpu_ticks;
 }
 
 float rumble_active_pct() {
-  // Calculate the percentage of Rumble active for this frame.
   u32 active_ticks = rumble_ticks;
-  // If the rumble is still active, account for the due cycles
   if (rumble_enable_tick)
     active_ticks += (cpu_ticks - rumble_enable_tick);
 
@@ -1509,15 +1637,13 @@ void function_cc write_gpio(u32 address, u32 value) {
       break;                                                                  \
                                                                               \
     case 0x08:                                                                \
-      /* gamepak ROM or RTC */                                                \
-      write_gpio##type();                                                     \
-      break;                                                                  \
-                                                                              \
     case 0x09:                                                                \
     case 0x0A:                                                                \
     case 0x0B:                                                                \
     case 0x0C:                                                                \
-      /* gamepak ROM space */                                                 \
+      /* gamepak ROM, RTC or EZ rumble */                                     \
+      write_gpio##type();                                                     \
+      write_ez_rumble(address, value);                                        \
       break;                                                                  \
                                                                               \
     case 0x0D:                                                                \
@@ -2363,7 +2489,11 @@ void init_memory(void)
   eeprom_counter = 0;
   rumble_enable_tick = 0;
   rumble_ticks = 0;
-  dma_bus_val = 0;
+   ez_rumble_status = EZ_RUMBLE_NONE;
+   ez_rumble_commit = -1;
+   ez_rumble_off_tick = 0;
+   gbp_reset();
+   dma_bus_val = 0;
 
   flash_mode = FLASH_BASE_MODE;
 
@@ -2585,6 +2715,59 @@ unsigned memory_write_savestate(u8 *dst)
   bson_finish_document(dst, wbptr);
 
   return (unsigned int)(dst - startp);
+}
+
+static s32 load_gamepak_from_data(const struct retro_game_info* info)
+{
+  unsigned i, j;
+
+  // Round size to 32KB pages
+  gamepak_size = info->size;
+  gamepak_size = (gamepak_size + 0x7FFF) & ~0x7FFF;
+
+  // Load stuff in 1MB chunks
+  u32 buf_blocks = (gamepak_size + gamepak_buffer_blocksize - 1) / gamepak_buffer_blocksize;
+  u32 rom_blocks = gamepak_size >> 15;
+  u32 ldblks = buf_blocks < gamepak_buffer_count ?
+                  buf_blocks : gamepak_buffer_count;
+
+  // Unmap the ROM space since we will re-map it now
+  map_null(read, 0x8000000, 0xD000000);
+
+  // Proceed to read the whole ROM or as much as possible from memory
+  const u8* src = (const u8*)info->data;
+  for (i = 0; i < ldblks; i++)
+  {
+    size_t toread = gamepak_buffer_blocksize;
+    size_t offset = (size_t)i * gamepak_buffer_blocksize;
+    if (offset + toread > info->size)
+      toread = info->size - offset;
+
+    memcpy(gamepak_buffers[i], src + offset, toread);
+    if (toread < gamepak_buffer_blocksize)
+      memset(gamepak_buffers[i] + toread, 0, gamepak_buffer_blocksize - toread);
+
+    for (j = 0; j < 32 && (i * 32 + j) < rom_blocks; j++)
+    {
+      u32 phyn = i * 32 + j;
+      u8* blkptr = &gamepak_buffers[i][32 * 1024 * j];
+      u32 entry = evict_gamepak_page();
+      gamepak_blk_queue[entry].phy_rom = phyn;
+      map_rom_entry(read, phyn, blkptr, rom_blocks);
+    }
+  }
+
+  // If ROM is larger than allocated buffers, fall back to opening the file
+  // for on-demand page swapping (this bypasses the UTF-8 path benefit but
+  // handles edge cases)
+  if (buf_blocks > gamepak_buffer_count && info->path)
+  {
+    gamepak_file_large = filestream_open(info->path,
+                          RETRO_VFS_FILE_ACCESS_READ,
+                          RETRO_VFS_FILE_ACCESS_HINT_NONE);
+  }
+
+  return 0;
 }
 
 static s32 load_gamepak_raw(const char *name)
@@ -2873,7 +3056,13 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
 {
    char game_code[5] = {0,0,0,0,0};
 
-   if (load_gamepak_raw(name))
+   // Prefer in-memory data (avoids Unicode path issues on Windows)
+   if (info && info->data)
+   {
+      if (load_gamepak_from_data(info))
+         return -1;
+   }
+   else if (load_gamepak_raw(name))
       return -1;
 
    gamepak_header_nonstandard =

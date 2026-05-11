@@ -60,6 +60,7 @@ bool serialaw_update(unsigned cycles);
 void serialaw_net_receive(const void* buf, size_t len, uint16_t client_id);
 
 // GBP interface
+void gbp_reset(void);
 u32 gbp_transfer(u32 value);
 void gbp_reset(void);
 u32 gbp_get_state(void);

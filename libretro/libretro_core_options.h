@@ -76,6 +76,17 @@ struct retro_core_option_definition option_defs_us[] = {
       },
       "game"
    },
+   {
+      "gpsp_rumble",
+      "Rumble support",
+      "Enable or disable cartridge rumble emulation (GPIO, EZ-Flash and GB Player).",
+      {
+         { "enabled",  NULL },
+         { "disabled", NULL },
+         { NULL, NULL },
+      },
+      "enabled"
+   },
 #if defined(HAVE_DYNAREC)
    {
       "gpsp_drc",
@@ -123,18 +134,6 @@ struct retro_core_option_definition option_defs_us[] = {
          { "mul_poke", "Link Cable - Pokemon Gen3 mode" },
          { "mul_aw1",  "Link Cable - Advance Wars 1 mode" },
          { "mul_aw2",  "Link Cable - Advance Wars 2 mode" },
-         { NULL, NULL },
-      },
-      "auto"
-   },
-   {
-      "gpsp_rumble",
-      "Rumble support",
-      "Sets the Rumble support for the emulated cartridge. Autodetect uses a ROM database that works with most commercial titles. You might want to force Rumble when using homebrew or ROM hacks that support it. You can also force-disable it if you don't like it.",
-      {
-         { "auto", NULL },
-         { "enabled",  NULL },
-         { "disabled", NULL },
          { NULL, NULL },
       },
       "auto"
@@ -367,8 +366,8 @@ struct retro_core_option_definition *option_defs_intl[RETRO_LANGUAGE_LAST] = {
    NULL,           /* RETRO_LANGUAGE_PORTUGUESE_PORTUGAL */
    NULL,           /* RETRO_LANGUAGE_RUSSIAN */
    NULL,           /* RETRO_LANGUAGE_KOREAN */
-   NULL,           /* RETRO_LANGUAGE_CHINESE_TRADITIONAL */
-   NULL,           /* RETRO_LANGUAGE_CHINESE_SIMPLIFIED */
+   option_defs_tw, /* RETRO_LANGUAGE_CHINESE_TRADITIONAL */
+   option_defs_cn, /* RETRO_LANGUAGE_CHINESE_SIMPLIFIED */
    NULL,           /* RETRO_LANGUAGE_ESPERANTO */
    NULL,           /* RETRO_LANGUAGE_POLISH */
    NULL,           /* RETRO_LANGUAGE_VIETNAMESE */

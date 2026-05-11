@@ -145,7 +145,7 @@ cpu_alert_type write_siocnt(u16 value) {
           newval &= ~0x0004;
       }
     }
-    else if (serial_mode == SERIAL_MODE_GBP) {
+    else if (serial_mode == SERIAL_MODE_GBP || rumble_enabled) {
       // Serial configured in slave mode, waiting for incoming word.
       if ((newval & 0x0080) && !(newval & 0x1) && !serial_irq_cycles) {
         // Send a new GBP sequence
