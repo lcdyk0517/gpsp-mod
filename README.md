@@ -1,3 +1,27 @@
+New Features (this fork)
+========================
+
+### Unicode ROM Path & 中文支持
+ - need_fullpath=false + VFS 临时文件，绕过中文 zip 路径编码问题
+ - load_gamepak_from_data 优先从内存加载 ROM，避免文件路径乱码
+ - 简/繁体中文核心选项翻译 (libretro_core_options_intl.h)
+
+### 统一震动系统 (GPIO / GBP / EZ-Flash)
+ - 震动默认启用，运行时即时生效，去掉"自动"选项
+ - EZ-Flash 7 态状态机（对齐 mgba），200ms 脉冲/持续模式
+ - GBP 震动默认支持（rumble_enabled 时自动响应）
+ - rumble_enabled 统一控制 GPIO/GBP/EZ 三条路径，关闭时强制熄火
+ - 核心选项列表中震动置顶
+
+### 金手指系统重写
+ - 移植 mgba 的 GameShark / PARv3 / CodeBreaker 解密引擎
+ - TEA / GSAv1 / CodeBreaker 解密 + LCG 随机数
+ - 格式解析器：支持 GameShark / PARv3 / CodeBreaker / VBA 四种格式
+ - 自动检测：概率评分识别 4 种金手指变体
+ - 多钩子地址支持（cheats_is_hook_address / cheats_process_hook）
+ - extern 声明整理，libretro 构建集成
+
+-----------------------------------------------------------------------
 
 gpSP for libretro
 =================
@@ -10,7 +34,7 @@ https://github.com/davidgfnet/gpsp). This version has a bunch of fixes and
 features.
 
 Feature list
-============
+===========
 
 gpSP features a dynamic recompiler that makes it quite fast (compared to other
 emulators at least). It supports x86/x64, ARMv6/7 and ARMv8 and MIPS (32 and 64
