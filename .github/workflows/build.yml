@@ -1,0 +1,177 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Android aarch64
+            platform: arm64
+            arch: aarch64
+            cc: aarch64-linux-android21-clang
+            cxx: aarch64-linux-android21-clang++
+            output: gpsp_libretro_android_aarch64.so
+
+          - name: Android arm
+            platform: armv7-neon
+            arch: arm
+            cc: armv7a-linux-androideabi21-clang
+            cxx: armv7a-linux-androideabi21-clang++
+            output: gpsp_libretro_android_arm.so
+
+          - name: Linux arm64
+            platform: arm64
+            arch: aarch64
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+            output: gpsp_libretro_linux_aarch64.so
+
+          - name: Linux arm32
+            platform: armv7-neon
+            arch: arm
+            cc: arm-linux-gnueabihf-gcc
+            cxx: arm-linux-gnueabihf-g++
+            output: gpsp_libretro_linux_arm.so
+
+          - name: Windows x64
+            platform: win
+            arch: x86_64
+            cc: x86_64-w64-mingw32-gcc
+            cxx: x86_64-w64-mingw32-g++
+            output: gpsp_libretro_win64.dll
+
+    name: ${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Android NDK
+        if: contains(matrix.name, 'Android')
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r26b
+
+      - name: Install cross tools (Linux ARM)
+        if: startsWith(matrix.name, 'Linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+                                   gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+
+      - name: Install MinGW (Windows)
+        if: startsWith(matrix.name, 'Windows')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+
+      - name: Build
+        run: |
+          if [ "${{ contains(matrix.name, 'Android') }}" = "true" ]; then
+            NDK_PATH="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+            make -j$(nproc) platform=${{ matrix.platform }} \
+              CC="$NDK_PATH/${{ matrix.cc }}" \
+              CXX="$NDK_PATH/${{ matrix.cxx }}" \
+              ARCH=${{ matrix.arch }} HAVE_DYNAREC=1
+          else
+            make -j$(nproc) platform=${{ matrix.platform }} \
+              CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
+          fi
+
+      - name: Rename output
+        run: |
+          if [ -f gpsp_libretro.so ]; then
+            mv gpsp_libretro.so ${{ matrix.output }}
+          elif [ -f gpsp_libretro.dll ]; then
+            mv gpsp_libretro.dll ${{ matrix.output }}
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.output }}
+          if-no-files-found: error
+
+  build-switch:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64
+
+    name: Switch
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build
+        run: make -j$(nproc) platform=libnx
+
+      - name: Rename output
+        run: mv gpsp_libretro_libnx.a gpsp_libretro_switch.a
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Switch
+          path: gpsp_libretro_switch.a
+          if-no-files-found: error
+
+  release:
+    needs: [build, build-switch]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List files
+        run: find artifacts -type f
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly-${{ steps.sha.outputs.short }}
+          name: "Nightly ${{ steps.sha.outputs.short }}"
+          body: |
+            ## Nightly Build
+
+            Commit: `${{ github.sha }}`
+
+            ### Downloads
+            - `gpsp_libretro_android_aarch64.so` - Android 64-bit
+            - `gpsp_libretro_android_arm.so` - Android 32-bit
+            - `gpsp_libretro_linux_aarch64.so` - Linux 64-bit ARM
+            - `gpsp_libretro_linux_arm.so` - Linux 32-bit ARM
+            - `gpsp_libretro_win64.dll` - Windows 64-bit
+            - `gpsp_libretro_switch.a` - Nintendo Switch
+          files: artifacts/**/*
+          make_latest: true
