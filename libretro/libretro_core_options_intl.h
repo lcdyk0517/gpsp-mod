@@ -223,9 +223,30 @@ struct retro_core_option_definition option_defs_tw[] = {
          { "28", NULL },  { "29", NULL }, { "30", NULL },
          { NULL, NULL },
       },
-      "4"
-   },
-   { NULL, NULL, NULL, {{0}}, NULL },
+       "4"
+    },
+    {
+       "gpsp_solar_sensor",
+       "太陽能感應器等級",
+       "設定《我們的太陽》系列遊戲的環境光線強度。遊戲中可使用 L3/R3 按鈕調整。",
+       {
+          { "disabled", "停用" },
+          { "0",  "最亮" },
+          { "1",  NULL },
+          { "2",  NULL },
+          { "3",  NULL },
+          { "4",  NULL },
+          { "5",  "中等" },
+          { "6",  NULL },
+          { "7",  NULL },
+          { "8",  NULL },
+          { "9",  NULL },
+          { "10", "最暗" },
+          { NULL, NULL },
+       },
+       "disabled"
+    },
+    { NULL, NULL, NULL, {{0}}, NULL },
 };
 
 /* RETRO_LANGUAGE_CHINESE_SIMPLIFIED */
@@ -394,9 +415,30 @@ struct retro_core_option_definition option_defs_cn[] = {
          { "28", NULL },  { "29", NULL }, { "30", NULL },
          { NULL, NULL },
       },
-      "4"
-   },
-   { NULL, NULL, NULL, {{0}}, NULL },
+       "4"
+    },
+    {
+       "gpsp_solar_sensor",
+       "太阳能传感器等级",
+       "设置《我们的太阳》系列游戏的环境光线强度。游戏中可使用 L3/R3 按钮调整。",
+       {
+          { "disabled", "禁用" },
+          { "0",  "最亮" },
+          { "1",  NULL },
+          { "2",  NULL },
+          { "3",  NULL },
+          { "4",  NULL },
+          { "5",  "中等" },
+          { "6",  NULL },
+          { "7",  NULL },
+          { "8",  NULL },
+          { "9",  NULL },
+          { "10", "最暗" },
+          { NULL, NULL },
+       },
+       "disabled"
+    },
+    { NULL, NULL, NULL, {{0}}, NULL },
 };
 
 /* RETRO_LANGUAGE_ESPERANTO */

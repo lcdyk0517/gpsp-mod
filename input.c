@@ -212,3 +212,21 @@ unsigned input_write_savestate(u8 *dst)
   return (unsigned int)(dst - startp);
 }
 
+// Solar sensor: L3 = darker, R3 = brighter
+void update_solar_sensor(void)
+{
+  if (!solar_sensor_enabled || !input_state_cb)
+    return;
+
+  if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3))
+  {
+    if (solar_level < 10)
+      solar_level++;
+  }
+  else if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3))
+  {
+    if (solar_level > 0)
+      solar_level--;
+  }
+}
+

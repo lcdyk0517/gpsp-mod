@@ -1219,10 +1219,18 @@ typedef enum
 #define RTC_WRITE_TIME_FULL           1
 #define RTC_WRITE_STATUS              2
 
-bool rtc_enabled = false, rumble_enabled = false;
+bool rtc_enabled = false, rumble_enabled = false, solar_sensor_enabled = false;
 
-// I/O registers (for RTC, rumble, etc)
+// I/O registers (for RTC, rumble, solar sensor, etc)
 u8 gpio_regs[3];
+
+// Solar sensor (Boktai) support
+// lightSample threshold values for each brightness level (from mGBA)
+static const u8 GBA_LUX_LEVELS[10] = { 5, 11, 18, 27, 42, 62, 84, 109, 139, 183 };
+u8 solar_level = 0;         // 0-10, 0=brightest, 10=darkest
+static u32 light_counter = 0;
+static u32 light_sample = 0xFF;
+static bool light_edge = false;
 
 // RTC tracking variables
 u32 rtc_state = RTC_DISABLED;
@@ -1302,7 +1310,7 @@ static u8 encode_bcd(u8 value)
 }
 
 void update_gpio_romregs() {
-  if (rtc_enabled || rumble_enabled) {
+  if (rtc_enabled || rumble_enabled || solar_sensor_enabled) {
     // Update the registers in the ROM mapped buffer.
     u8 *map = memory_map_read[0x8000000 >> 15];
     if (map) {
@@ -1585,6 +1593,31 @@ void function_cc write_gpio(u32 address, u32 value) {
 
   if (rumble_enabled && (prev_value & 0x8) != (gpio_regs[0] & 0x8))
     write_rumble(prev_value & 0x8, gpio_regs[0] & 0x8);
+
+  // Solar sensor (Boktai): simulate capacitor discharge via counter/threshold
+  if (solar_sensor_enabled) {
+    u8 new_val = gpio_regs[0];
+
+    // bit1=1: reset counter and sample threshold (matching mGBA logic)
+    if (new_val & 0x2) {
+      light_counter = 0;
+      u32 lux = 0x16; // base value
+      if (solar_level > 0)
+        lux += GBA_LUX_LEVELS[solar_level - 1];
+      light_sample = 0xFF - lux;
+      light_edge = true;
+    }
+
+    // bit0 rising edge: increment counter
+    if ((new_val & 0x1) && light_edge) {
+      light_counter++;
+    }
+    light_edge = !(new_val & 0x1);
+
+    // output bit3: 1 if counter >= threshold (dark)
+    bool dark = light_counter >= light_sample;
+    gpio_regs[0] = (gpio_regs[0] & ~0x8) | (dark << 3);
+  }
 
   // Reflect the values
   update_gpio_romregs();

@@ -1105,6 +1105,20 @@ static void check_variables(bool started_from_load)
       turbo_a_counter = 0;
       turbo_b_counter = 0;
    }
+
+   var.key   = "gpsp_solar_sensor";
+   var.value = NULL;
+   solar_sensor_enabled = false;
+   solar_level = 0;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "disabled") != 0)
+      {
+         solar_sensor_enabled = true;
+         solar_level = atoi(var.value);
+         solar_level = (solar_level < 0) ? 0 : (solar_level > 10) ? 10 : solar_level;
+      }
+   }
 }
 
 static void set_input_descriptors()
@@ -1429,6 +1443,7 @@ void retro_run(void)
 
    input_poll_cb();
    update_input();
+   update_solar_sensor();
 
    rumble_frame_reset();
 

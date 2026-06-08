@@ -13,6 +13,12 @@ New Features (this fork)
  - rumble_enabled 统一控制 GPIO/GBP/EZ 三条路径，关闭时强制熄火
  - 核心选项列表中震动置顶
 
+### 太阳能传感器 (Boktai 系列)
+ - 移植 mgba 的 _lightReadPins 计数/阈值逻辑
+ - 核心选项设置初始亮度 (0=最亮, 10=最暗)
+ - L3/R3 运行时手动调整 (与 mgba 一致)
+ - 支持《我们的太阳》系列、《暗影之屋》等使用 GPIO 光感的游戏
+
 ### 金手指系统重写
  - 移植 mgba 的 GameShark / PARv3 / CodeBreaker 解密引擎
  - TEA / GSAv1 / CodeBreaker 解密 + LCG 随机数

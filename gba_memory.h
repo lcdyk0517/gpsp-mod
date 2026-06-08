@@ -236,6 +236,9 @@ float rumble_active_pct();
 void rumble_force_off(void);
 void update_gpio_romregs();
 
+extern bool solar_sensor_enabled;
+extern u8 solar_level;
+
 /* EDIT: Shouldn't this be extern ?! */
 extern const u32 def_seq_cycles[16][2];
 /* Cycles can change depending on WAITCNT */

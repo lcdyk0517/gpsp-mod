@@ -344,6 +344,27 @@ struct retro_core_option_definition option_defs_us[] = {
       },
       "4"
    },
+   {
+      "gpsp_solar_sensor",
+      "Solar Sensor Level",
+      "Sets ambient sunlight intensity for Boktai series games. Use L3/R3 to adjust during gameplay.",
+      {
+         { "disabled", NULL },
+         { "0",  "Brightest" },
+         { "1",  NULL },
+         { "2",  NULL },
+         { "3",  NULL },
+         { "4",  NULL },
+         { "5",  "Medium" },
+         { "6",  NULL },
+         { "7",  NULL },
+         { "8",  NULL },
+         { "9",  NULL },
+         { "10", "Darkest" },
+         { NULL, NULL },
+      },
+      "disabled"
+   },
    { NULL, NULL, NULL, {{0}}, NULL },
 };
 

@@ -75,6 +75,7 @@ extern unsigned turbo_b_counter;
 
 void init_input(void);
 u32 update_input(void);
+void update_solar_sensor(void);
 
 bool input_check_savestate(const u8 *src);
 unsigned input_write_savestate(u8* dst);
